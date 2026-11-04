@@ -1,0 +1,39 @@
+{
+  "mert95": {
+    "repo_id": "m-a-p/MERT-v1-95M",
+    "revision": "12af15fef9d0ac838c3f475bfbbf26d2060dd4f5",
+    "license": "cc-by-nc-4.0",
+    "local_dir": "models/mert95"
+  },
+  "mert330": {
+    "repo_id": "m-a-p/MERT-v1-330M",
+    "revision": "5240c2708a5acaee1007f43fb9735c7dcd0b78c9",
+    "license": "cc-by-nc-4.0",
+    "local_dir": "models/mert330"
+  },
+  "merit_heads": {
+    "repo_id": "amaai-lab/merit",
+    "revision": "a85df30eca1ba112eb594285f3ba1d96488e7883",
+    "license": "mit",
+    "local_dir": "models/merit_heads"
+  },
+  "songformer": {
+    "repo_id": "ASLP-lab/SongFormer",
+    "revision": "a75880ed1b7375ac71860ec6c4fc9c899cf99515",
+    "license": "not_declared",
+    "local_dir": "models/songformer"
+  },
+  "qwen": {
+    "repo_id": "Qwen/Qwen3.5-0.8B",
+    "revision": "2fc06364715b967f1860aea9cf38778875588b17",
+    "license": "apache-2.0",
+    "local_dir": "models/qwen"
+  },
+  "songformer_aux_config": {
+    "repo_id": "facebook/wav2vec2-conformer-rope-large-960h-ft",
+    "revision": "6b36ef01c6443c67ae7ed0822876d091ab50e4aa",
+    "license": "apache-2.0",
+    "local_dir": "models/songformer_aux_config",
+    "usage": "configuration only; no additional pretrained weights"
+  }
+}
