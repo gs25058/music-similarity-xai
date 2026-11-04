@@ -9,6 +9,7 @@ models/
 checkpoints/
 results/
 external/
+reference_files/
 *.pt
 *.ckpt
 *.safetensors

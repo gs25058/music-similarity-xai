@@ -61,7 +61,7 @@ def train(manifest_path, out, backbone="mert95", epochs=2, batch_size=4, lr=.001
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.set_num_threads(2)
-    torch.use_deterministic_algorithms(True)
+    torch.use_deterministic_algorithms(True, warn_only=True)
     raw_manifest = Path(manifest_path).read_bytes()
     manifest = json.loads(raw_manifest)
     memberships = audit_manifest(manifest)

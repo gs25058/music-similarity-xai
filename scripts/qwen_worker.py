@@ -62,7 +62,9 @@ def main():
         schema = dict(type="object", properties={
             "judgment": dict(type="string", enum=["high_similarity", "review", "low_similarity", "insufficient_evidence"]),
             "evidence_ids": dict(type="array", items=dict(type="string", enum=ids or ["unused"]), maxItems=len(ids), uniqueItems=True),
-            "explanation": dict(type="string", pattern="[^0-9]{1,400}")},
+            # A looping regex shares parser/token caches across string lengths.
+            # Expanding a {1,400} bound creates hundreds of expensive states.
+            "explanation": dict(type="string", pattern="[^0-9]*")},
             required=["judgment", "evidence_ids", "explanation"], additionalProperties=False)
         parser_config = CharacterLevelParserConfig()
         parser_config.alphabet += "".join(chr(i) for i in range(0xAC00, 0xD7A4))

@@ -6,4 +6,5 @@ os.environ.setdefault("HF_HOME", str(Path(__file__).resolve().parents[1] / ".cac
 os.environ.setdefault("HF_MODULES_CACHE", str(Path(__file__).resolve().parents[1] / ".cache" / "hf_modules"))
 os.environ.setdefault("USE_TF", "0")
 os.environ.setdefault("USE_FLAX", "0")
+os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 __version__ = "0.1.0"

@@ -2,7 +2,7 @@
 
 두 곡의 **전체 음원**에서 대응하는 시간 구간과 음악 요소별 유사성을 찾고, 구조화된 근거를 입력받은 로컬 Qwen이 한국어 판단을 작성하는 Python 과목 프로젝트 MVP다. 판단 대상은 **추가 검토에 필요한 음악적 유사성**이다.
 
-소스는 사용자 요청에 따라 `src/`에 둔다. 아래 명령은 **저장소 루트**에서 실행한다. 원문 문헌은 [reference_files](reference_files/README.md), 외부 코드 고지는 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), 모델·데이터 버전은 [MODEL_DATA_SOURCES.md](MODEL_DATA_SOURCES.md), 실제 검증 결과는 [docs/VALIDATION.md](docs/VALIDATION.md)에 있다.
+소스는 사용자 요청에 따라 `src/`에 둔다. 아래 명령은 **저장소 루트**에서 실행한다. 원문 문헌은 `reference_files/`(로컬 보관, Git 제외), 외부 코드 고지는 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), 모델·데이터 버전은 [MODEL_DATA_SOURCES.md](MODEL_DATA_SOURCES.md), 실제 검증 결과는 [docs/VALIDATION.md](docs/VALIDATION.md)에 있다.
 
 ## 설치
 

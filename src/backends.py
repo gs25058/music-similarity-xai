@@ -55,6 +55,9 @@ class MertEncoder(nn.Module):
         if loading["missing_keys"] or loading["unexpected_keys"] or loading.get("mismatched_keys"):
             raise ValueError(f"MERT checkpoint was not loaded exactly: {loading}")
         self.model = self.model.to(device).eval()
+        # Supervised downstream fine-tuning does not use MERT's pretraining
+        # span masking; time-aligned labels must see the unmasked waveform.
+        self.model.config.apply_spec_augment = False
         expected = 768 if size == "95" else 1024
         if self.model.config.hidden_size != expected:
             raise ValueError(f"Expected official MERT-v1-{size}M ({expected} dims)")
