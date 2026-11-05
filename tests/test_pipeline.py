@@ -94,12 +94,59 @@ def test_judge_rejects_hallucinated_ids_and_times():
     assert validate_judgment(valid, evidence) == valid
     for updates in (dict(evidence_ids=["E999"]), dict(explanation="E999가 유사합니다."),
                     dict(explanation="10초에서 유사합니다."), dict(explanation="English only"),
-                    dict(evidence_ids=[]), dict(judgment="plagiarism"), dict(explanation="유사도는 0.99입니다.")):
+                    dict(evidence_ids=[]), dict(judgment="plagiarism"), dict(judgment=[]), dict(explanation="유사도는 0.99입니다.")):
         with pytest.raises(ValueError):
             validate_judgment({**valid, **updates}, evidence)
     context = [{**evidence[0], "structure_context": {"a": [{"label": "verse"}], "b": []}}]
     with pytest.raises(ValueError, match="observed"):
         validate_judgment({**valid, "explanation": "구조 정보를 관측하지 못했습니다."}, context)
+    for text in ("음악이 유사합니다. " + "和 "*50, "음악 요소가 유사합니다. "*10):
+        with pytest.raises(ValueError):
+            validate_judgment({**valid, "explanation": text}, evidence)
+
+
+def test_llm_payload_keeps_source_times_scores_and_missing_states():
+    from src.judge import evidence_payload
+    evidence = [dict(evidence_id="E001", a=dict(start=10., end=20.), b=dict(start=15., end=25.),
+        combined_cosine=.923456, factors={"rhythm": dict(status="available", cosine=.923456),
+                                         "harmony": dict(status="unavailable", cosine=None)},
+        music_information={side: [dict(status="proxy", onset_times_seconds=[10., 11.],
+                                      missing=["verified_chords"])] for side in ("a", "b")},
+        structure_context=dict(a=[], b=[]))]
+    before = copy.deepcopy(evidence)
+    payload = evidence_payload(evidence)[0]
+    assert evidence == before
+    assert payload["a"] == before[0]["a"] and payload["b"] == before[0]["b"]
+    assert payload["factors"]["rhythm"]["cosine"] == .9235
+    assert payload["factors"]["harmony"]["cosine"] is None
+    assert payload["factors"]["rhythm"]["score_band_ko"] == "매우 높음"
+    assert payload["music_information"]["a"][0]["missing"] == ["verified_chords"]
+
+
+def test_swap_preserves_structure_availability():
+    from src.judge import swap_comparison
+    comparison = dict(evidence=[dict(a=dict(start=0., end=10.), b=dict(start=5., end=15.),
+        music_information=dict(a=[], b=[]), structure_context=dict(a=[dict(label="verse")], b=[],
+        a_status="executed", b_status="unavailable"))])
+    swapped = swap_comparison(comparison)
+    assert swapped["evidence"][0]["structure_context"]["a_status"] == "unavailable"
+    assert swapped["evidence"][0]["structure_context"]["b_status"] == "executed"
+    assert swap_comparison(swapped) == comparison
+
+
+def test_missing_pitch_head_has_unavailable_hard_negative_fpr(tmp_path):
+    from src.evaluate import evaluate
+    path = tmp_path/"tone.wav"
+    sf.write(path, .1*np.sin(2*np.pi*440*np.arange(24000)/24000), 24000)
+    manifest = dict(pairs=[dict(a=dict(audio=str(path)), b=dict(audio=str(path)), split="test",
+                    kind="hard_negative", original_ids=["fixture"], targets=dict(pitch_intervals=0))], insertion_cases=[])
+    source = tmp_path/"manifest.json"
+    source.write_text(json.dumps(manifest))
+    backend = DSPBackend()
+    backend.supported = ("rhythm", "harmony", "accompaniment_bass")
+    result = evaluate(source, backend, tmp_path/"metrics.json", judge_cases=0)
+    assert result["hard_negative_pitch_fpr"] is None
+    assert json.loads((tmp_path/"metrics.json").read_text())["hard_negative_pitch_fpr"] is None
 
 
 def test_pop909_tracks_are_not_section_labels(tmp_path):

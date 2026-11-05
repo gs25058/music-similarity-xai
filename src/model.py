@@ -103,6 +103,8 @@ class LearnedBackend:
                 self.encoder.model.load_state_dict(ckpt["encoder_state_dict"], strict=True)
             self.encoder.eval()
         self.checkpoint = str(checkpoint)
+        from .evidence import file_digest
+        self.checkpoint_sha256=file_digest(checkpoint)
 
     @torch.no_grad()
     def encode(self, window):
@@ -117,6 +119,7 @@ class LearnedBackend:
         info = dict(status="model_prediction_not_verified", source=self.meta["backbone"],
                     training_accompaniment_sources=self.meta.get("accompaniment_sources", []),
                     predictions={}, missing=["verified_main_melody", "verified_bass", "verified_chords"])
+        temporal = {}
         for factor, out in outputs.items():
             if factor not in self.supported:
                 info["predictions"][factor] = dict(status="unavailable", reason="no_training_supervision_for_factor")
@@ -129,19 +132,27 @@ class LearnedBackend:
                 v = value[0][mask[0]]
                 if task.endswith("pitch"):
                     pitch = v.argmax(-1).cpu().numpy()
+                    temporal["pitch" if task == "melody_pitch" else "bass"] = np.where(pitch == 84, np.nan, pitch + 24)
                     voiced = pitch[pitch != 84] + 24
                     tasks[task] = dict(midi_median=float(np.median(voiced)) if len(voiced) else None,
                                        unvoiced_fraction=float(np.mean(pitch == 84)))
                 elif task == "chroma":
+                    temporal["chroma"] = torch.sigmoid(v).cpu().numpy()
                     tasks[task] = torch.sigmoid(v).mean(0).cpu().tolist()
                 elif task in ("chord_root", "chord_quality"):
+                    temporal[task] = v.argmax(-1).cpu().numpy()
                     tasks[task] = dict(class_histogram=torch.bincount(v.argmax(-1), minlength=v.shape[-1]).cpu().tolist())
                 else:
+                    if task in ("melody_onset", "bass_onset", "onset", "beat"):
+                        temporal[task] = torch.sigmoid(v).squeeze(-1).cpu().numpy()
                     tasks[task] = dict(mean_probability=float(torch.sigmoid(v).mean()))
             info["predictions"][factor] = tasks
+        from .evidence import temporal_observations
+        info["temporal"] = temporal_observations(np.arange(int(mask.sum()))/20 + window.start,
+            source="model_prediction_not_verified", **temporal)
         return emb, info
 
     def metadata(self):
-        return dict(backend=self.name, checkpoint=self.checkpoint, supported=list(self.supported),
+        return dict(backend=self.name, checkpoint=self.checkpoint,checkpoint_sha256=self.checkpoint_sha256, supported=list(self.supported),
                     status="trained_smoke_model" if self.meta.get("smoke") else "trained_model",
                     training=self.meta)

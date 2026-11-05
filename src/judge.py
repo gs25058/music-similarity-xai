@@ -9,7 +9,7 @@ JUDGMENTS = {"high_similarity", "review", "low_similarity", "insufficient_eviden
 def validate_judgment(value, evidence):
     if not isinstance(value, dict) or set(value) != {"judgment", "evidence_ids", "explanation"}:
         raise ValueError("Expected exactly judgment, evidence_ids, explanation")
-    if value["judgment"] not in JUDGMENTS:
+    if not isinstance(value["judgment"], str) or value["judgment"] not in JUDGMENTS:
         raise ValueError("Unknown judgment")
     ids = value["evidence_ids"]
     known = {e["evidence_id"] for e in evidence}
@@ -20,6 +20,11 @@ def validate_judgment(value, evidence):
     text = value["explanation"]
     if not isinstance(text, str) or not re.search("[가-힣]", text) or not 1 <= len(text) <= 8000:
         raise ValueError("Expected Korean explanation")
+    letters = sum(c.isalpha() for c in text)
+    if len(re.findall("[가-힣]", text)) < .25 * letters:
+        raise ValueError("설명은 한국어 문장으로 작성하세요.")
+    if re.search(r"(\S+)(?:\s+\1){5,}|([^\s])\2{9,}|(.{2,50}?)(?:\3){4,}", text):
+        raise ValueError("같은 글자나 문구를 반복하지 말고 음악적 근거를 짧게 설명하세요.")
     prose = re.sub(r"(?<![A-Za-z0-9])E\d{3,}(?![0-9])", "", text)
     if re.search(r"\d", prose):
         raise ValueError("explanation은 근거 ID 외 숫자 없이 작성하세요. 점수와 시간은 원본 근거에서 표시합니다.")
@@ -58,6 +63,32 @@ def rule_judge(comparison):
     return dict(judgment=label, evidence_ids=[best["evidence_id"]], explanation=explanation)
 
 
+def music_information_summary(info):
+    """Serialize readable observations, preserving uncertainty and provenance."""
+    result = {key: info[key] for key in ("status", "source", "pitch_source", "accompaniment_source",
+              "harmony_source", "training_accompaniment_sources", "missing", "reason",
+              "dominant_pitch_midi_median", "low_register_midi_median") if key in info}
+    if "onset_times_seconds" in info:
+        result["observed_onset_count"] = len(info["onset_times_seconds"])
+    if "chroma_mean" in info:
+        result["chroma_peak_pitch_classes"] = sorted(range(12), key=lambda i: info["chroma_mean"][i], reverse=True)[:3]
+    if "predictions" in info:
+        predictions = {}
+        for factor, tasks in info["predictions"].items():
+            summary = {}
+            for task, value in tasks.items():
+                if isinstance(value, dict) and "class_histogram" in value:
+                    counts = value["class_histogram"]
+                    summary[task] = dict(most_frequent_predicted_class=max(range(len(counts)), key=counts.__getitem__))
+                elif isinstance(value, list):
+                    summary[task] = dict(peak_pitch_classes=sorted(range(len(value)), key=value.__getitem__, reverse=True)[:3])
+                else:
+                    summary[task] = value
+            predictions[factor] = summary
+        result["predictions"] = predictions
+    return result
+
+
 def evidence_payload(evidence, limit=3):
     result = []
     for item in evidence[:limit]:
@@ -65,11 +96,18 @@ def evidence_payload(evidence, limit=3):
         e.pop("window_pairs", None)
         e.pop("candidate_kind", None)  # implementation detail, not musical structure
         e["combined_cosine"] = round(e["combined_cosine"], 4)
-        for factor in e["factors"].values():
+        names = {"pitch_intervals": "음정 진행", "melody": "선율", "rhythm": "리듬", "harmony": "화성",
+                 "accompaniment_bass": "반주·베이스", "phrase_structure": "프레이즈 구조", "timbre": "음색"}
+        for name, factor in e["factors"].items():
+            factor["name_ko"] = names[name]
             if factor["cosine"] is not None:
                 factor["cosine"] = round(factor["cosine"], 4)
+                factor["score_band_ko"] = ("매우 높음" if factor["cosine"] >= .92 else
+                                           "높음" if factor["cosine"] >= .8 else "부분적" if factor["cosine"] >= .5 else "낮음")
+            else:
+                factor["score_band_ko"] = "판단 정보 없음"
         # Preserve missing states and predictions; bound repeated per-window information.
-        e["music_information"] = {side: e["music_information"][side][:1] for side in ("a", "b")}
+        e["music_information"] = {side: [music_information_summary(info) for info in e["music_information"][side][:1]] for side in ("a", "b")}
         if not e["structure_context"]["a"] and not e["structure_context"]["b"]:
             e["structure_context"] = dict(status="unavailable", a=[], b=[],
                                           missing="No observed section labels or structural similarity")
@@ -77,7 +115,10 @@ def evidence_payload(evidence, limit=3):
     return result
 
 
-def judge_pair(comparison, backend="rule", qwen_python=None, device="cpu"):
+def judge_pair(comparison, backend="rule", qwen_python=None, device="cpu", config=None, context=None):
+    if config is not None:
+        from .qwen_integration import judge_configured
+        return judge_configured(comparison,backend,qwen_python,device,config,context)
     baseline = validate_judgment(rule_judge(comparison), comparison["evidence"])
     selected, status = baseline, dict(backend="rule", status="executed")
     if backend == "qwen":
@@ -98,6 +139,7 @@ def judge_pair(comparison, backend="rule", qwen_python=None, device="cpu"):
             if 'process' in locals():
                 status["raw_output"] = process.stdout[-12000:]
     by_id = {e["evidence_id"]: e for e in comparison["evidence"]}
+    status["fallback_used"]=backend=="qwen" and status["status"]=="failed_rule_fallback"
     selected = {**selected, "cited_intervals": [dict(evidence_id=eid, a=by_id[eid]["a"], b=by_id[eid]["b"])
                                                for eid in selected["evidence_ids"]]}
     return dict(selected=selected, rule_baseline=baseline, execution=status)
@@ -109,4 +151,7 @@ def swap_comparison(comparison):
         e["a"], e["b"] = e["b"], e["a"]
         for key in ("music_information", "structure_context"):
             e[key]["a"], e[key]["b"] = e[key]["b"], e[key]["a"]
+        context = e["structure_context"]
+        if "a_status" in context and "b_status" in context:
+            context["a_status"], context["b_status"] = context["b_status"], context["a_status"]
     return swapped

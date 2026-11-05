@@ -4,6 +4,10 @@
 
 소스는 사용자 요청에 따라 `src/`에 둔다. 아래 명령은 **저장소 루트**에서 실행한다. 원문 문헌은 `reference_files/`(로컬 보관, Git 제외), 외부 코드 고지는 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), 모델·데이터 버전은 [MODEL_DATA_SOURCES.md](MODEL_DATA_SOURCES.md), 실제 검증 결과는 [docs/VALIDATION.md](docs/VALIDATION.md)에 있다.
 
+지금까지 확인한 사실·시행착오, 현재 구현과 환경, 남은 연구 과제와 다음 작업은 [프로젝트 현황과 교훈](docs/PROJECT_STATUS.md)에 정리했다.
+
+Qwen 확장은 [근거·주장·LoRA·충실도 평가 안내](docs/QWEN_ALIGNMENT.md)에 있다. `--qwen-config`를 지정하면 시간순 근거와 주장 검증을 사용하며, config의 `adapter`로 LoRA를 선택한다. 기본 CLI는 기존 경로를 유지한다. 자동 파일럿에서의 동작 확인과 사람의 음악적 판단·설명 정확도 평가는 구분한다.
+
 ## 설치
 
 Python 3.10 권장. WAV/FLAC는 soundfile로 읽으며 MP3/M4A 등 추가 형식은 시스템 `ffmpeg`가 필요할 수 있다. 호스트 패키지를 공유하지 않는 가상환경을 권장한다.
@@ -172,13 +176,21 @@ python -m src compare song_a.wav song_b.wav --backend ours --checkpoint checkpoi
 
 SongFormer 준비 시 내부 MusicFM의 Conformer **설정 파일만** 추가로 고정 다운로드한다. 공식 코드의 부동 Hub 조회를 이 로컬 설정으로 연결하며 추가 백본 가중치·모델 축소는 없다. 전체 음원 결과의 `start/end/label`을 검사한다. 예측한 구조 라벨 자체의 정답 여부는 별도 평가 대상이다.
 
-Qwen에는 상위 근거 최대 3개의 ID·양쪽 시간·점수·예측 음악 정보·누락 상태를 전달한다. 비양자화 고정 가중치, `enable_thinking=False`, greedy 생성으로 실행한다. 원문 근거가 길면 창별 음악 정보는 첫 항목만 전달하므로 이 범위를 넘는 해석은 검토해야 한다. 응답 형식이 잘못되면 같은 모델에 최대 한 번 형식을 다시 요청하고 최초 실패와 재응답을 기록한다. **스키마/ID 검증은 설명 내용의 충실도까지 증명하지 않는다.**
+Qwen에는 상위 근거 최대 3개의 ID·양쪽 시간·점수·예측 음악 정보·누락 상태를 전달한다. 비양자화 고정 가중치, `enable_thinking=False`, greedy 생성으로 실행한다. 창별 음악 정보는 첫 항목을 요약해 전달한다. 온셋은 개수, 크로마는 상위 음고 클래스, 예측 분포는 최빈 클래스로 요약하며 원본은 보고서에 보존한다. 요소 이름과 점수 구간을 한국어로 덧붙이지만 이 구간은 보정된 판정 기준이 아니다. 응답 형식이 잘못되면 같은 모델에 최대 한 번 형식을 다시 요청하고 최초 실패와 재응답을 기록한다. **스키마/ID 검증은 설명 내용의 충실도까지 증명하지 않는다.**
 
 Qwen 입력의 코사인은 소수 네 자리로 전달하고 원본 정밀도는 보고서에 보존한다. LLM이 시간을 잘못 합치거나 점수를 과장해 서술하는 오류를 막기 위해 `explanation`에서는 근거 ID 외 숫자를 허용하지 않는다. 정확한 시간과 점수는 원본 `comparison.evidence` 및 `cited_intervals`에서 읽는다. 이 검사는 질적인 서술의 충실도까지 보증하지 않는다.
+
+실제 GPU 검증에서는 JSON/ID 검증을 통과한 응답에도 판단과 설명의 모순이 관찰됐다. `executed_validated`는 형식·ID 검증 상태이며, 설명 충실도가 검증됐다는 뜻은 아니다. 실행 수치와 관찰한 문제는 [검증 기록](docs/VALIDATION.md)에 구분해 남겼다.
 
 ## 평가
 
 Qwen은 `lm-format-enforcer==0.11.3`으로 생성 토큰을 JSON 스키마에 맞게 제한한다. 허용된 라벨과 근거 ID만 생성할 수 있고 설명에는 숫자를 쓰지 않는다. 근거 ID는 `evidence_ids` 필드로 제공하며 모델 판단 자체는 코드에서 강제하지 않는다. 따라서 형식 검증률은 제약 디코딩을 사용한 실행 안정성 지표이며 음악적 판단 정확도와 구분한다.
+
+한글 설명은 JSON 문자열 캐시를 사용한다. 캐시와 문자 검사에 같은 한글·영문·구두점 범위를 적용하고, 설명의 숫자·이스케이프·불완전 UTF-8 토큰은 제외한다. 설명 안에서만 같은 네 토큰의 반복을 제한하며 근거 ID의 enum에는 적용하지 않는다. 한국어 비율과 퇴행적 반복도 응답 후 검사한다. 응답 메타데이터에는 모델 로드·토크나이저 캐시 준비·생성 시간과 실제 device/dtype을 기록한다. 가중치 없이 실제 Qwen 토크나이저를 검사하려면 다음 명령을 사용한다.
+
+```bash
+.venv-qwen/bin/python -m unittest discover -s tests -p test_qwen_decoding.py -v
+```
 
 ```bash
 python -m src evaluate --manifest data/synthetic/manifest.json --backend dsp --out results/dsp_eval.json
@@ -209,3 +221,32 @@ docs/VALIDATION.md    실제 실행 명령·수치·검증 한계
 ```
 
 데이터·체크포인트·캐시·실험 결과는 `data/`, `models/`, `checkpoints/`, `.cache/`, `results/`에 저장하고 Git에서 제외한다. 공개 녹음·POP909의 작은 예제를 별도로 준비하려면 `python scripts/fetch_reference_examples.py --out results/reference_examples`를 사용한다. 녹음 크레딧과 다운로드 SHA-256도 함께 기록한다.
+
+## Qwen 주장 검증·LoRA·충실도 평가 확장
+
+기존 명령은 유지한다. `--qwen-config`를 지정하면 새 시간순 근거와 `claims/verdict/explanation`을 사용하고, 보고서에는 기존 `judgment.selected`와 새 검증 결과를 함께 저장한다. config의 `adapter`가 없으면 고정 Qwen, 있으면 해당 LoRA를 로드한다.
+
+```bash
+.venv-qwen/bin/python -m pip install -r requirements/qwen.txt
+.venv/bin/python scripts/qwen_dataset.py prepare \
+  --manifest data/synthetic/manifest.json --backend ours --checkpoint checkpoints/mert95_smoke.pt \
+  --device cuda --max-per-split 2 --evidence-limit 1 --time-bins 4 --out data/qwen_pilot
+.venv/bin/python scripts/qwen_dataset.py review-view --dataset data/qwen_pilot/pilot.jsonl --out data/qwen_review
+.venv-qwen/bin/python scripts/train_qwen.py --dataset data/qwen_pilot/pilot.jsonl \
+  --config configs/qwen/lora_smoke.json --max-steps 16 --out checkpoints/qwen/smoke --device cuda
+.venv/bin/python scripts/evaluate_qwen.py --dataset data/qwen_pilot/pilot.jsonl \
+  --adapter checkpoints/qwen/smoke --config configs/qwen/inference_smoke.json \
+  --conditions A B C --base-cases 1 --device cuda --out results/qwen/abc.json
+```
+
+위 데이터는 자동 초안이다. 미확정 판단은 기본적으로 마스킹한다. 임시 규칙 판단까지 학습하는 실험은 `prepare --supervise-rule-verdict`와 `lora_weak_policy_smoke.json`을 명시적으로 선택한다. 검수 데이터 본 학습은 `lora.json`의 `human_approved` 필터를 사용한다. 설정된 길이를 넘는 사례는 사전 검사에서 거부하며 조용히 자르지 않는다.
+
+기존 두 WAV 분석에 새 프로토콜을 적용하려면:
+
+```bash
+python -m src compare song_a.wav song_b.wav --backend ours --checkpoint checkpoints/mert95_smoke.pt \
+  --judge qwen --qwen-python .venv-qwen/bin/python --qwen-config configs/qwen/inference.json \
+  --device cuda --out results/qwen/claims.json
+```
+
+LoRA 추론은 위 config를 복사해 `"adapter":"checkpoints/qwen/smoke"`를 추가한다. 검수 파일 적용·재개 학습·validation 보정·의미 평가 재집계·디코더 비교·오디오 재분석·선택적 soft token 명령은 [Qwen 확장 안내](docs/QWEN_ALIGNMENT.md)에 있다. 자동 주장 검사 통과와 사람의 음악적 판단·설명 충실도는 구분한다.

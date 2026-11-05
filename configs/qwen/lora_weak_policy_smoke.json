@@ -1,0 +1,16 @@
+{
+  "rank": 16,
+  "alpha": 32,
+  "dropout": 0.0,
+  "target_modules": ".*language_model.layers.\\d+\\.(self_attn\\.(q_proj|v_proj)|linear_attn\\.(in_proj_qkv|out_proj))",
+  "learning_rate": 0.0002,
+  "weight_decay": 0.0,
+  "max_steps": 16,
+  "max_length": 12288,
+  "max_grad_norm": 1.0,
+  "gradient_checkpointing": true,
+  "seed": 42,
+  "review_statuses": ["auto_generated"],
+  "allow_weak_verdict_supervision": true,
+  "field_weights": {"verdict": 2.0, "citation": 1.5, "claims": 1.0, "explanation": 1.0, "structure": 1.0}
+}

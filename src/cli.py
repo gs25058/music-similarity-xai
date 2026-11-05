@@ -36,6 +36,7 @@ def main():
     compare.add_argument("--songformer-python")
     compare.add_argument("--judge", choices=["rule", "qwen"], default="rule")
     compare.add_argument("--qwen-python")
+    compare.add_argument("--qwen-config",help="Opt-in evidence/claims/adapter settings JSON; default keeps legacy schema")
     model_arguments(compare)
     training = commands.add_parser("train")
     training.add_argument("--manifest", required=True)
@@ -98,7 +99,8 @@ def main():
         a, b = [analyze_song(args[side], backend, args["window"], args["hop"], structure) for side in ("a", "b")]
         comparison = compare_songs(a, b, backend, args["threshold"], args["top_k"],
                                    json.loads(args["weights"]) if args["weights"] else None)
-        judgment = judge_pair(comparison, args["judge"], args["qwen_python"], args["device"])
+        judgment = judge_pair(comparison, args["judge"], args["qwen_python"], args["device"],args["qwen_config"],
+                              dict(backend=backend.metadata(),songs=dict(a=a,b=b)))
         report = dict(schema_version=1, task="musical_similarity_for_further_review", backend=backend.metadata(),
                       songs=dict(a=public_song(a), b=public_song(b)), comparison=comparison, judgment=judgment,
                       analysis=dict(window_seconds=args["window"], hop_seconds=args["hop"], sample_rate=24000,

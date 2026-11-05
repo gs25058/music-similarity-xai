@@ -73,4 +73,7 @@ def dsp_encode(window):
                 low_register_midi_median=float(np.median(low)),
                 onset_times_seconds=(np.flatnonzero(onset > .5) / FPS + window.start).round(3).tolist(),
                 missing=["isolated_main_melody", "verified_chords", "isolated_bass", "beat_labels"])
+    from .evidence import temporal_observations
+    info["temporal"] = temporal_observations(np.arange(len(f))/FPS + window.start,
+        pitch=high, bass=low, onset=onset, chroma=chroma[valid], source="derived_mixed_audio_proxy")
     return emb, info

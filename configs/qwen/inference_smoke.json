@@ -1,0 +1,20 @@
+{
+  "evidence_format": "compact",
+  "response_format": "claims",
+  "evidence_limit": 1,
+  "time_bins": 4,
+  "legacy_decoding": {
+    "json_constraints": true, "prose_filter": "korean", "forbid_numeric_prose": true,
+    "repetition_penalty": 1.1, "no_repeat_ngram": 4, "max_new_tokens": 700, "max_retries": 0
+  },
+  "decoding": {
+    "json_constraints": true,
+    "prose_filter": "korean",
+    "forbid_numeric_prose": false,
+    "repetition_penalty": 1.05,
+    "no_repeat_ngram": 0,
+    "max_new_tokens": 700,
+    "max_claims": 4,
+    "max_retries": 0
+  }
+}

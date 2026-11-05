@@ -1,6 +1,15 @@
 # 외부 코드 출처 및 변경 기록
 
-확인일: 2026-11-04. 코드 라이선스와 모델·데이터 이용 조건은 구분한다. 모델 리비전·데이터 출처는 [MODEL_DATA_SOURCES.md](MODEL_DATA_SOURCES.md), 실제 가중치 다운로드 명세는 [configs/model_versions.json](configs/model_versions.json)에 있다.
+확인일: 2026-11-05. 코드 라이선스와 모델·데이터 이용 조건은 구분한다. 모델 리비전·데이터 출처는 [MODEL_DATA_SOURCES.md](MODEL_DATA_SOURCES.md), 실제 가중치 다운로드 명세는 [configs/model_versions.json](configs/model_versions.json)에 있다.
+
+## Qwen 학습·검증 확장
+
+- **PEFT 0.21.2**: [공식 v0.21.2](https://github.com/huggingface/peft/tree/86b6cbda4c125337bdc0cc7fc3f2fe09c17238e1), 커밋 `86b6cbda4c125337bdc0cc7fc3f2fe09c17238e1`. `peft/mapping_func.py`, `peft/peft_model.py`, `peft/tuners/lora/config.py`의 공개 `get_peft_model`, `LoraConfig`, `PeftModel.from_pretrained`, 저장 API를 패키지 의존성으로 사용한다. `scripts/qwen_runtime.py`, `src/qwen_training.py`, 기존 `scripts/qwen_worker.py`에 적용했다. 라이브러리 소스 복사·수정은 없으며 [Apache-2.0 원문](third_party/licenses/PEFT-Apache-2.0.txt)을 보존했다. Accelerate 1.15.0은 로딩 의존성으로 설치했으며 분산 학습 코드를 가져오지 않았다.
+- **LMFE 어댑터 추가**: 아래에 기록한 동일 0.11.3 API를 사용한다. 자유 문자열 캐시에서 빠지던 `.",` 등 구두점·닫는 따옴표·JSON 구분자를 포함한 토큰을 제한된 후보 집합에서 실제 parser로 검사하는 `ClosingBoundaryTokens`를 새로 구현했다. Unicode 조건에서는 `TokenEnforcer`가 바꾼 parser 문자 범위를 복원한다. 설치한 패키지는 수정하지 않았다.
+- **Qwen 공식 API 추가 사용**: 동일 고정 리비전의 모델과 tokenizer를 그대로 사용한다. tokenizer의 assistant-turn 종료 ID와 모델 기본 종료 ID가 달라 두 worker의 `generate`에 실제 tokenizer 종료 ID를 명시했다. 음악 모델과 vision 분기를 고정하고 확인한 text attention 모듈에만 LoRA를 적용한다.
+- 시간순 근거, 양쪽 NMS, 보정 단위 검사, 주장 계약·검증, source-group JSONL·검수 도구, 출력 토큰 마스킹·가중 손실, feature cache·projection·prefix, 충실도 평가·오디오 재분석 루프는 이 프로젝트의 새 구현이다.
+
+설계 참고는 [MusiLingo 논문](https://aclanthology.org/2024.findings-naacl.231/), [SelfCite 논문](https://proceedings.mlr.press/v267/chuang25a.html)과 [공식 저장소](https://github.com/facebookresearch/SelfCite), [LoRA 논문](https://arxiv.org/abs/2106.09685)이다. MusiLingo의 모델 연결 관점과 SelfCite의 맥락 제거·유지 평가 관점을 참고했으며 해당 연구의 학습 코드는 복사하지 않았다. 자체 reward·선호 최적화를 실행하거나 논문의 성능을 재현했다고 주장하지 않는다.
 
 ## 가져오거나 수정한 코드
 
@@ -21,7 +30,7 @@ Qwen 모델 카드의 표시 라이선스는 Apache-2.0이다. 준비 스크립�
 
 ## 설계·스키마 참고, 코드 복사 없음
 
-Qwen JSON 제약 디코딩은 [noamgat/lm-format-enforcer v0.11.3](https://github.com/noamgat/lm-format-enforcer/tree/05c7dc3a46305e39c1a67c8622c433d8deda48a2) 패키지 API를 사용한다. 고정 커밋은 `05c7dc3a46305e39c1a67c8622c433d8deda48a2`, 참고 파일은 `README.md` Basic Tutorial 및 `lmformatenforcer/integrations/transformers.py`다. `scripts/qwen_worker.py`에서 공식 `JsonSchemaParser`와 `build_transformers_prefix_allowed_tokens_fn` 호출을 적용하고, 우리 응답 스키마·한글 문자 범위·숫자 없는 설명 패턴을 새로 정의했다. Transformers v5에서 이동한 `PreTrainedTokenizerBase` 공개 클래스에 런타임 호환 별칭을 제공하며 설치 패키지 파일이나 모델 가중치를 수정하지 않는다. MIT 라이선스 원문은 [third_party/licenses/lm-format-enforcer-MIT.txt](third_party/licenses/lm-format-enforcer-MIT.txt)에 보존했다. 형식 제약은 설명 내용의 정확도를 보증하지 않는다.
+Qwen JSON 제약 디코딩은 [noamgat/lm-format-enforcer v0.11.3](https://github.com/noamgat/lm-format-enforcer/tree/05c7dc3a46305e39c1a67c8622c433d8deda48a2) 패키지 API를 사용한다. 고정 커밋은 `05c7dc3a46305e39c1a67c8622c433d8deda48a2`, 참고 파일은 `README.md` Basic Tutorial, `lmformatenforcer/integrations/transformers.py`, `lmformatenforcer/tokenizerprefixtree.py`다. `scripts/qwen_decoding.py`에서 공식 토크나이저 준비·JSON parser API를 사용하고, 새 어댑터가 자유 문자열 캐시와 parser에 같은 한글·영문·구두점 범위를 적용하면서 숫자와 이스케이프 토큰을 제외한다. 불완전 UTF-8 토큰을 조합해 문자 제한을 우회하지 못하도록 설명 캐시에서 해당 토큰도 제외한다. 명시적 enum으로 처리하는 근거 ID의 숫자는 유지한다. 정규식으로 한글 자유 문자열 전체를 탐색하지 않고 기존 캐시를 활용하며, 토크나이저 준비 결과는 재시도에도 재사용한다. 설명 문자열에만 Transformers의 공개 `NoRepeatNGramLogitsProcessor`를 적용하는 어댑터를 새로 작성했다. Transformers v5에서 이동한 `PreTrainedTokenizerBase` 공개 클래스에 런타임 호환 별칭을 제공한다. 설치 패키지 파일이나 모델 가중치는 수정하지 않는다. MIT 라이선스 원문은 [third_party/licenses/lm-format-enforcer-MIT.txt](third_party/licenses/lm-format-enforcer-MIT.txt)에 보존했다. 형식 제약은 설명 내용의 정확도를 보증하지 않는다.
 
 SongFormer worker는 MusicFM의 `Wav2Vec2ConformerConfig.from_pretrained`가 부동 Hub ID를 읽는 부분을 `configs/model_versions.json`의 고정 로컬 config로 연결한다. 원본 `musicfm/model/musicfm_25hz.py` 파일과 모델 텐서는 수정하지 않는다. 설정 출처는 `facebook/wav2vec2-conformer-rope-large-960h-ft`, 리비전 `6b36ef01c6443c67ae7ed0822876d091ab50e4aa`, Apache-2.0이며 추가 가중치를 가져오지 않는다.
 

@@ -113,12 +113,17 @@ def compare_songs(a, b, backend, threshold=.8, top_k=20, weights=None, min_cover
                                          cosine=float(np.mean(values)) if values else None)
         evidence.append(dict(evidence_id=f"E{index+1:03}", candidate_kind=candidate_kind, a=ai, b=bi, combined_cosine=float(score),
                              factors=factor_scores, window_pairs=[dict(a=i, b=j) for i, j in chain],
+                             alignment=[dict(a={k: a["windows"][i][k] for k in ("start", "end")},
+                                             b={k: b["windows"][j][k] for k in ("start", "end")},
+                                             factors={f: float(scores[f][i,j]) if masks[f][i,j] else None for f in scores})
+                                        for i,j in chain],
                              music_information=dict(a=[w["music_information"] for w in a_windows],
                                                     b=[w["music_information"] for w in b_windows]),
                              structure_context=dict(a=_contexts(a, ai), b=_contexts(b, bi),
                                                     a_status=a["structure"]["status"], b_status=b["structure"]["status"],
                                                     role="context_only_not_similarity_evidence")))
     return dict(evidence=evidence, factor_weights=weights, threshold=threshold,
+                backend_identity=backend.metadata(),
                 min_window_coverage=min_coverage,
                 total_window_pairs=int(np.prod(shape)), score_semantics="raw_cosine_not_probability",
                 matrix_maxima={factor: float(matrix[masks[factor]].max()) if masks[factor].any() else None

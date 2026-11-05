@@ -86,12 +86,13 @@ def evaluate(manifest_path, backend, out, split="test", threshold=.8, max_pairs=
     successful = [c for c in judgments if c["both_executed"]]
     responses = [c[side] for c in judgments for side in ("original", "swapped")]
     first_pass = [v["execution"].get("metadata", {}).get("first_pass_valid", False) for v in responses]
+    valid_hard_negatives = [v["pitch_false_positive"] for v in hard if v["pitch_false_positive"] is not None]
     result = dict(backend=backend.metadata(), split=split, pair_count=len(pairs),
                   factor_metrics={factor: binary_metrics(*values, threshold) for factor, values in measurements.items()},
                   merit_comparison=dict(strict_common_factor="rhythm", approximate_common_factor="melody vs pitch_intervals (not identical)",
                                         excluded=["timbre vs accompaniment_bass", "harmony", "phrase_structure"]),
                   insertion_localization=insertions, hard_negatives=hard,
-                  hard_negative_pitch_fpr=float(np.mean([v["pitch_false_positive"] for v in hard if v["pitch_false_positive"] is not None])) if hard else None,
+                  hard_negative_pitch_fpr=float(np.mean(valid_hard_negatives)) if valid_hard_negatives else None,
                   hard_negative_overall_high_similarity_rate=float(np.mean([v["overall_rule_judgment"] == "high_similarity" for v in hard])) if hard else None,
                   judge_backend=judge, judge_checks=judgments,
                   judge_metrics=dict(requested_responses=len(responses),

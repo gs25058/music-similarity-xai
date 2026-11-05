@@ -8,10 +8,15 @@ import json
 import os
 from pathlib import Path
 import sys
+import time
+
+from qwen_decoding import build_tokenizer_data, build_decoder, ExplanationNoRepeat
+from qwen_runtime import generation_stop_args
 
 PROMPT = """두 곡의 음악적 유사성을 추가 검토하는 음악 분석가입니다.
 입력 evidence의 음정 진행, 리듬, 화성, 반주 근거를 종합하세요. 곡의 출처나 표절을 단정하지 마세요.
 cosine은 유사도 점수이며 확률이 아닙니다. unavailable은 해당 정보가 없다는 뜻입니다.
+name_ko와 score_band_ko는 음악 요소 이름과 점수 구간을 한국어로 나타냅니다. 점수 구간은 보정된 정답이 아닙니다.
 structure_context는 구간 맥락일 뿐입니다. 구조 정보가 없어도 다른 음악 요소로 판단할 수 있습니다.
 같은 후렴이라는 이유로 점수를 더하지 마세요. timbre는 반주가 아닙니다. predictions는 검증된 정답이 아닙니다.
 
@@ -30,6 +35,7 @@ explanation에는 숫자를 쓰지 마세요. 점수와 시간은 프로그램�
 
 
 def main():
+    started = time.perf_counter()
     request = json.load(sys.stdin)
     os.environ.setdefault("HF_HOME", str(Path(".cache/huggingface_qwen").resolve()))
     spec = json.loads(Path("configs/model_versions.json").read_text())["qwen"]
@@ -40,43 +46,36 @@ def main():
         import torch
         import transformers
         from transformers import AutoProcessor, AutoModelForImageTextToText
-        # lm-format-enforcer 0.11.3 imports a tokenizer class from its v4 path.
-        # v5 exports the same public class from tokenization_utils_base.
-        import transformers.tokenization_utils as tokenizer_compat
-        if not hasattr(tokenizer_compat, "PreTrainedTokenizerBase"):
-            tokenizer_compat.PreTrainedTokenizerBase = transformers.PreTrainedTokenizerBase
-        from lmformatenforcer import JsonSchemaParser, CharacterLevelParserConfig
-        from lmformatenforcer.integrations.transformers import build_transformers_prefix_allowed_tokens_fn
         torch.set_num_threads(2)
         processor = AutoProcessor.from_pretrained(str(path), local_files_only=True)
         device = request.get("device", "cpu")
         model = AutoModelForImageTextToText.from_pretrained(str(path), local_files_only=True,
                     dtype=torch.float32 if device == "cpu" else torch.bfloat16).to(device).eval()
+        if request.get("adapter"):
+            from peft import PeftModel
+            meta=json.loads((Path(request["adapter"])/"training_meta.json").read_text())
+            if meta["base_model"]!=spec:raise ValueError("LoRA base-model revision mismatch")
+            model=PeftModel.from_pretrained(model,request["adapter"],is_trainable=False).eval()
         for p in model.parameters():
             p.requires_grad_(False)
+        loaded_at = time.perf_counter()
         messages = [{"role": "system", "content": [{"type": "text", "text": PROMPT}]},
                     {"role": "user", "content": [{"type": "text", "text": json.dumps(request, ensure_ascii=False)}]}]
         sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
         from src.judge import validate_judgment
         ids = [e["evidence_id"] for e in request["evidence"]]
-        schema = dict(type="object", properties={
-            "judgment": dict(type="string", enum=["high_similarity", "review", "low_similarity", "insufficient_evidence"]),
-            "evidence_ids": dict(type="array", items=dict(type="string", enum=ids or ["unused"]), maxItems=len(ids), uniqueItems=True),
-            # A looping regex shares parser/token caches across string lengths.
-            # Expanding a {1,400} bound creates hundreds of expensive states.
-            "explanation": dict(type="string", pattern="[^0-9]*")},
-            required=["judgment", "evidence_ids", "explanation"], additionalProperties=False)
-        parser_config = CharacterLevelParserConfig()
-        parser_config.alphabet += "".join(chr(i) for i in range(0xAC00, 0xD7A4))
+        tokenizer_data = build_tokenizer_data(processor.tokenizer)
+        decoder_ready_at = time.perf_counter()
         attempts = []
         for attempt in range(2):
             inputs = processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=True,
                         return_dict=True, return_tensors="pt", enable_thinking=False).to(device)
-            prefix = build_transformers_prefix_allowed_tokens_fn(processor.tokenizer,
-                        JsonSchemaParser(schema, config=parser_config))
+            prefix = build_decoder(tokenizer_data, ids)
             with torch.inference_mode():
-                output = model.generate(**inputs, max_new_tokens=1024, do_sample=False,
-                                        prefix_allowed_tokens_fn=prefix)
+                output = model.generate(**inputs, max_new_tokens=1024, do_sample=False, repetition_penalty=1.1,
+                                        prefix_allowed_tokens_fn=prefix,
+                                        logits_processor=[ExplanationNoRepeat(prefix, inputs["input_ids"].shape[-1])],
+                                        **generation_stop_args(processor))
             text = processor.decode(output[0][inputs["input_ids"].shape[-1]:], skip_special_tokens=True).strip()
             # Strip an enclosing code fence only; never repair IDs or invent output.
             if text.startswith("```json") and text.endswith("```"):
@@ -96,7 +95,16 @@ def main():
     print(json.dumps(dict(result=result, metadata={**spec, "thinking": False, "weights_frozen": True,
                                                   "transformers": transformers.__version__, "decode": "greedy",
                                                   "max_new_tokens": 1024,
+                                                  "adapter": request.get("adapter"),
+                                                  "generation_stop": generation_stop_args(processor),
+                                                  "repetition_penalty": 1.1, "explanation_no_repeat_ngram_size": 4,
                                                   "format_enforcer": "lm-format-enforcer==0.11.3",
+                                                  "device": str(model.device), "dtype": str(next(model.parameters()).dtype),
+                                                  "decoder": "cached_korean_json_freetext_without_numeric_tokens",
+                                                  "timings_seconds": {"load": round(loaded_at-started, 3),
+                                                      "tokenizer_cache": round(decoder_ready_at-loaded_at, 3),
+                                                      "generation": round(time.perf_counter()-decoder_ready_at, 3),
+                                                      "total": round(time.perf_counter()-started, 3)},
                                                   "first_pass_valid": attempts[0]["valid"], "attempts": attempts}), ensure_ascii=False))
 
 
